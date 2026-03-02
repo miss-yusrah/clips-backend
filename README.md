@@ -1,4 +1,3 @@
-# clips-backend
 # ClipCash
 
 **Turn your long videos into short viral clips — automatically, with full control, and optional NFT ownership.**
@@ -11,7 +10,7 @@ You always stay in control:
 → Delete the bad ones  
 → Then post only the good ones automatically
 
-Bonus: you can also turn your best clips into NFTs on the Stellar network (very cheap & fast) so you truly own them and can earn royalties forever.
+**Bonus: you can also turn your best clips into NFTs on the Stellar network (very cheap & fast) so you truly own them and can earn royalties foreve**r.
 
 ## What makes ClipCash special?
 
@@ -32,14 +31,67 @@ Bonus: you can also turn your best clips into NFTs on the Stellar network (very 
 
 ## Tech Stack – Simple Overview
 
-| Part          | Technology                  | Why we chose it                     |
-|---------------|-----------------------------|--------------------------------------|
-| Frontend      | Next.js 15 + React + Tailwind | Fast, beautiful, mobile-friendly    |
-| Backend       | NestJS (TypeScript)         | Clean, organized, easy to grow      |
-| Database      | PostgreSQL (via Supabase or Prisma) | Reliable & real-time updates     |
-| Queue / Jobs  | BullMQ + Redis              | Handles long AI & posting tasks     |
-| Social Posting| Ayrshare                    | One tool posts to all platforms     |
-| Blockchain    | Stellar Soroban (Rust)      | Very cheap fees, built-in royalties |
-| AI            | Runway Gen-3 + Claude       | Finds the most viral moments        |
+| Part           | Technology                          | Why we chose it                     |
+| -------------- | ----------------------------------- | ----------------------------------- |
+| Frontend       | Next.js 15 + React + Tailwind       | Fast, beautiful, mobile-friendly    |
+| Backend        | NestJS (TypeScript)                 | Clean, organized, easy to grow      |
+| Database       | PostgreSQL (via Supabase or Prisma) | Reliable & real-time updates        |
+| Queue / Jobs   | BullMQ + Redis                      | Handles long AI & posting tasks     |
+| Social Posting | Ayrshare                            | One tool posts to all platforms     |
+| Blockchain     | Stellar Soroban (Rust)              | Very cheap fees, built-in royalties |
+| AI             | Runway Gen-3 + Claude               | Finds the most viral moments        |
 
 ## Project Folders (very simple view)
+
+clipcash/
+├── backend/ ← The API server (NestJS)
+├── frontend/ ← The website users see (Next.js)
+├── contracts/ ← Stellar smart contracts (Rust)
+├── docker-compose.yml ← Easy local setup (database + redis)
+└── README.md ← You are reading it right now 😄
+text## Quick Start (Local Development)
+
+### 1. Requirements
+
+- Node.js 18 or newer
+- Docker (recommended for database & redis)
+- Git
+
+### 2. Clone & install
+
+```bash
+git clone https://github.com/your-username/clipcash.git
+cd clipcash
+3. Start everything with Docker (easiest)
+Bashdocker-compose up -d
+This starts:
+
+PostgreSQL database
+Redis (for background jobs)
+Backend
+Frontend
+
+4. Or start manually
+Backend:
+Bashcd backend
+cp .env.example .env
+npm install
+npm run start:dev
+Frontend:
+Bashcd frontend
+cp .env.local.example .env.local
+npm install
+npm run dev
+Open http://localhost:3000 in your browser.
+Important Environment Variables
+See .env.example files in backend/ and frontend/ folders.
+Most important ones:
+env# Backend
+DATABASE_URL=postgresql://...
+AYRSHARE_API_KEY=your-ayrshare-key
+STELLAR_NETWORK=testnet
+
+# Frontend
+NEXT_PUBLIC_API_URL=http://localhost:3001
+NEXT_PUBLIC_STELLAR_RPC=https://soroban-testnet.stellar.org
+```
