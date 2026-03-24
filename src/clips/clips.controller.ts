@@ -8,10 +8,11 @@ import {
   NotFoundException,
   Req,
 } from '@nestjs/common';
-import { Request } from 'express';
-import { ClipsService, ClipSortField, SortOrder } from './clips.service';
-import { ClipGenerationJob } from './clip-generation.processor';
-import { BulkUpdateClipsDto } from './dto/bulk-update-clips.dto';
+import type { Request } from 'express';
+import { ClipsService } from './clips.service';
+import type { ClipSortField, SortOrder } from './clips.service';
+import type { ClipGenerationJob } from './clip-generation.processor';
+import type { BulkUpdateClipsDto } from './dto/bulk-update-clips.dto';
 
 @Controller('clips')
 export class ClipsController {
@@ -19,13 +20,14 @@ export class ClipsController {
 
   /**
    * POST /clips/generate
-   * Trigger clip generation and virality scoring for a video segment.
+   * Enqueue a clip-generation job with automatic retry + exponential backoff.
+   * Returns the BullMQ job ID immediately; processing happens asynchronously.
    *
-   * Body: { videoId, startTime, endTime, positionRatio, transcript? }
+   * Body: { videoId, inputPath, outputPath, startTime, endTime, positionRatio, transcript? }
    */
   @Post('generate')
   generate(@Body() dto: ClipGenerationJob) {
-    return this.clipsService.generateClip(dto);
+    return this.clipsService.enqueueClip(dto);
   }
 
   /**
