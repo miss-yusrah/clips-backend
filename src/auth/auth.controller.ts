@@ -8,11 +8,14 @@ import {
   UseGuards,
   ValidationPipe,
   BadRequestException,
+  HttpCode,
+  HttpStatus,
 } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { MagicLinkRequestDto } from './dto/magic-link.dto';
+import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 @Controller('auth')
 export class AuthController {
@@ -40,7 +43,7 @@ export class AuthController {
   @UseGuards(AuthGuard('google'))
   async googleCallback(@Req() req: any) {
     const user = req.user;
-    const tokens = this.authService.issueTokens({
+    const tokens = await this.authService.issueTokensWithRefresh({
       id: user.id,
       email: user.email ?? null,
     });
@@ -62,5 +65,21 @@ export class AuthController {
       throw new BadRequestException('Token is required');
     }
     return this.authService.verifyMagicLink(token);
+  }
+
+  @Post('refresh')
+  @HttpCode(HttpStatus.OK)
+  async refresh(
+    @Body(new ValidationPipe({ transform: true })) dto: RefreshTokenDto,
+  ) {
+    return this.authService.refreshTokens(dto.refreshToken);
+  }
+
+  @Post('logout')
+  @HttpCode(HttpStatus.NO_CONTENT)
+  async logout(
+    @Body(new ValidationPipe({ transform: true })) dto: RefreshTokenDto,
+  ) {
+    await this.authService.logout(dto.refreshToken);
   }
 }
