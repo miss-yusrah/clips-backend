@@ -57,6 +57,7 @@ model Clip {
   thumbnail     String?
   platform      String?
   title         String?
+  caption       String?
   startTime     Float
   endTime       Float
   duration      Int

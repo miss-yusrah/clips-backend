@@ -1,16 +1,19 @@
 import { Logger } from '@nestjs/common';
 import { Processor, WorkerHost, OnWorkerEvent } from '@nestjs/bullmq';
-import { Job } from 'bullmq';
+import { Job, UnrecoverableError } from 'bullmq';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Clip } from './clip.entity';
 import { calculateViralityScore } from './virality-score.util';
 import { cutClip } from './ffmpeg.util';
+import { generateCaption } from './caption.util';
 import { CloudinaryService } from './cloudinary.service';
 import { CLIP_GENERATION_QUEUE } from './clip-generation.queue';
 import {
   CLIP_GENERATION_FAILED_EVENT,
   ClipGenerationFailedPayload,
 } from './clips.events';
+import { ClipsGateway } from './clips.gateway';
+import { ClipsService } from './clips.service';
 
 export interface ClipGenerationJob {
   videoId: string;
@@ -27,6 +30,8 @@ export interface ClipGenerationJob {
   /** 0.0–1.0: where in the source video this clip starts */
   positionRatio: number;
   transcript?: string;
+  /** Video title — used to auto-generate the caption placeholder */
+  title?: string;
 }
 
 export interface ClipProcessingResult {
@@ -60,6 +65,8 @@ export class ClipGenerationProcessor extends WorkerHost {
   constructor(
     private readonly cloudinaryService: CloudinaryService,
     private readonly eventEmitter: EventEmitter2,
+    private readonly clipsGateway: ClipsGateway,
+    private readonly clipsService: ClipsService,
   ) {
     super();
   }
@@ -69,6 +76,10 @@ export class ClipGenerationProcessor extends WorkerHost {
     const data = job.data;
     const durationSeconds = data.endTime - data.startTime;
     const clipId = `${data.videoId}-${data.startTime}-${data.endTime}`;
+    const JOB_TIMEOUT_MS = 30 * 60 * 1000;
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), JOB_TIMEOUT_MS);
+    this.clipsService._registerJobController(data.videoId, String(job.id ?? ''), controller);
 
     this.logger.log(
       `Processing clip job ${job.id} — attempt ${job.attemptsMade + 1}/${job.opts.attempts ?? 1} ` +
@@ -78,13 +89,16 @@ export class ClipGenerationProcessor extends WorkerHost {
     try {
       // FFmpeg cut — may throw transiently (OOM, network mount, etc.)
       this.logger.log(`Starting clip generation: ${clipId}`);
+      await job.updateProgress(10);
       await cutClip({
         inputPath: data.inputPath,
         outputPath: data.outputPath,
         startTime: data.startTime,
         endTime: data.endTime,
         videoDuration: data.videoDuration,
+        signal: controller.signal,
       });
+      await job.updateProgress(50);
 
       const viralityScore = calculateViralityScore({
         durationSeconds,
@@ -100,10 +114,14 @@ export class ClipGenerationProcessor extends WorkerHost {
       );
 
       // Upload to Cloudinary with 2 retries
-      const uploadResult = await this.uploadToCloudinary(
-        data.outputPath,
-        clipId,
-      );
+      await job.updateProgress(80);
+      const abortPromise = new Promise<never>((_, reject) => {
+        controller.signal.addEventListener('abort', () => reject(new Error('Aborted')), { once: true });
+      });
+      const uploadResult = await Promise.race([
+        this.uploadToCloudinary(data.outputPath, clipId),
+        abortPromise,
+      ]);
 
       if (uploadResult.error) {
         // Upload failed after all retries - keep local file as fallback
@@ -129,6 +147,7 @@ export class ClipGenerationProcessor extends WorkerHost {
           error: `Cloudinary upload failed: ${uploadResult.error}`,
           selected: false,
           postStatus: null,
+          caption: generateCaption(data.title, clipId, data.transcript),
           createdAt: new Date(),
           updatedAt: new Date(),
         };
@@ -140,6 +159,7 @@ export class ClipGenerationProcessor extends WorkerHost {
       this.logger.log(
         `Clip processing complete: ${clipId} → ${uploadResult.secure_url}`,
       );
+      await job.updateProgress(100);
 
       return {
         id: clipId,
@@ -155,6 +175,7 @@ export class ClipGenerationProcessor extends WorkerHost {
         status: 'success',
         selected: false,
         postStatus: null,
+        caption: generateCaption(data.title, clipId, data.transcript),
         createdAt: new Date(),
         updatedAt: new Date(),
       };
@@ -180,7 +201,18 @@ export class ClipGenerationProcessor extends WorkerHost {
         }
       }
 
-      // Re-throw to trigger BullMQ retry logic
+      if (controller.signal.aborted) {
+        const cancelled = this.clipsService._isVideoCancelled(data.videoId);
+        clearTimeout(timeout);
+        this.clipsService._clearJobController(String(job.id ?? ''));
+        if (cancelled) {
+          throw new UnrecoverableError('Cancelled by user');
+        } else {
+          throw new UnrecoverableError('Timeout');
+        }
+      }
+      clearTimeout(timeout);
+      this.clipsService._clearJobController(String(job.id ?? ''));
       throw error;
     }
   }
@@ -253,5 +285,25 @@ export class ClipGenerationProcessor extends WorkerHost {
     };
 
     this.eventEmitter.emit(CLIP_GENERATION_FAILED_EVENT, payload);
+  }
+
+  @OnWorkerEvent('progress')
+  onProgress(job: Job<ClipGenerationJob>, progress: number): void {
+    const video = this.clipsService._getVideo(job.data.videoId);
+    const userId = video?.userId;
+    if (!userId) return;
+    const clipId = `${job.data.videoId}-${job.data.startTime}-${job.data.endTime}`;
+    const payload = {
+      jobId: job.id,
+      videoId: job.data.videoId,
+      percent: Math.max(0, Math.min(100, Math.round(Number(progress) || 0))),
+      currentClip: {
+        id: clipId,
+        startTime: job.data.startTime,
+        endTime: job.data.endTime,
+        positionRatio: job.data.positionRatio,
+      },
+    };
+    this.clipsGateway.emitProgressToUser(userId, payload);
   }
 }
